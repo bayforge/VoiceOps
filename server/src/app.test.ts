@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { createServer, type Server } from "node:http";
 import { createVoiceOpsApp } from "./app";
+import { loadConfig } from "./config";
 
 const listen = (server: Server) =>
   new Promise<number>((resolve) => {
@@ -17,10 +18,7 @@ describe("VoiceOps HTTP app", () => {
   let baseUrl = "";
 
   beforeEach(async () => {
-    const app = createVoiceOpsApp({
-      repoRoot: process.cwd(),
-      runnerMode: "mock"
-    });
+    const app = createVoiceOpsApp(loadConfig({ REPO_ROOT: process.cwd() }));
     server = createServer(app.handle);
     const port = await listen(server);
     baseUrl = `http://127.0.0.1:${port}`;

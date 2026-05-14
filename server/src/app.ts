@@ -5,6 +5,11 @@ import { classifyIntent } from "./intent.js";
 import { checkActionSafety } from "./safety.js";
 import { EventHub } from "./eventHub.js";
 import { createInitialState, pushTerminalEvent, systemEvent } from "./state.js";
+import {
+  createElevenLabsRealtimeSttService,
+  createElevenLabsTtsService,
+  publicVoiceConfig
+} from "./voice/elevenLabs.js";
 
 type JsonValue = Record<string, unknown>;
 
@@ -16,6 +21,15 @@ const writeJson = (res: ServerResponse, statusCode: number, body: JsonValue): vo
     "access-control-allow-headers": "content-type"
   });
   res.end(JSON.stringify(body));
+};
+
+const writeAudio = (res: ServerResponse, contentType: string, audio: ArrayBuffer): void => {
+  res.writeHead(200, {
+    "content-type": contentType,
+    "access-control-allow-origin": "*",
+    "cache-control": "no-store"
+  });
+  res.end(Buffer.from(audio));
 };
 
 const readJson = async (req: IncomingMessage): Promise<JsonValue> =>
@@ -122,6 +136,8 @@ const approvalKindForAction = (action: VoiceAction): PendingApproval["kind"] => 
 
 export const createVoiceOpsApp = (config: AppConfig) => {
   const hub = new EventHub();
+  const sttService = createElevenLabsRealtimeSttService(config.voice);
+  const ttsService = createElevenLabsTtsService(config.voice);
   let state: VoiceOpsState = createInitialState();
 
   const publish = (nextState: VoiceOpsState): void => {
@@ -323,7 +339,17 @@ export const createVoiceOpsApp = (config: AppConfig) => {
 
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (req.method === "GET" && url.pathname === "/health") {
-        writeJson(res, 200, { ok: true, service: "cursor-voiceops", runnerMode: config.runnerMode });
+        writeJson(res, 200, {
+          ok: true,
+          service: "cursor-voiceops",
+          runnerMode: config.runnerMode,
+          voice: publicVoiceConfig(config.voice)
+        });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/voice/config") {
+        writeJson(res, 200, { voice: publicVoiceConfig(config.voice) });
         return;
       }
 
@@ -339,6 +365,23 @@ export const createVoiceOpsApp = (config: AppConfig) => {
 
       if (req.method === "POST" && url.pathname === "/commands") {
         await respondToCommand(req, res);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/voice/stt-session") {
+        writeJson(res, 200, await sttService.createClientSession());
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/voice/tts") {
+        const body = await readJson(req);
+        const text = asString(body.text) ?? "";
+        const speech = await ttsService.synthesize(text);
+        if (!speech.available) {
+          writeJson(res, 503, speech);
+          return;
+        }
+        writeAudio(res, speech.contentType, speech.audio);
         return;
       }
 
