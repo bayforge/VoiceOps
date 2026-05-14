@@ -41,6 +41,39 @@ export type AgentEvent = {
 
 export type AgentStatus = "idle" | "running" | "waiting_approval" | "complete" | "failed" | "stopped";
 
+export type VoiceSttMode = "mock" | "elevenlabs";
+
+export type VoiceTtsMode = "browser" | "elevenlabs";
+
+export type PublicVoiceConfig = {
+  sttMode: VoiceSttMode;
+  ttsMode: VoiceTtsMode;
+  elevenLabsConfigured: boolean;
+  elevenLabsVoiceConfigured: boolean;
+  sttModelId: string;
+  ttsModelId: string;
+};
+
+export type VoiceConfig = PublicVoiceConfig & {
+  elevenLabsApiKey?: string;
+  elevenLabsVoiceId?: string;
+  ttsOutputFormat: string;
+  realtimeSttUrl: string;
+  tokenUrl: string;
+  ttsStreamUrl: string;
+};
+
+export type ElevenLabsSttSession =
+  | {
+      available: false;
+      reason: string;
+    }
+  | {
+      available: true;
+      token: string;
+      websocketUrl: string;
+    };
+
 export type PendingApproval = {
   id: string;
   kind: "commit" | "branch" | "risky_action";
@@ -75,4 +108,5 @@ export type AppConfig = {
   port?: number;
   repoRoot: string;
   runnerMode: "mock";
+  voice: VoiceConfig;
 };
