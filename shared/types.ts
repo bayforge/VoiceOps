@@ -24,16 +24,6 @@ export type VoiceAction = {
   riskLevel: RiskLevel;
 };
 
-export type AgentTask = {
-  id: string;
-  type: "feature" | "test" | "fix" | "summarize" | "branch" | "commit" | "demo";
-  prompt: string;
-  repoRoot: string;
-  requiresApproval: boolean;
-  approved: boolean;
-  command?: string;
-};
-
 export type AgentEvent = {
   type:
     | "started"
@@ -53,12 +43,10 @@ export type AgentStatus = "idle" | "running" | "waiting_approval" | "complete" |
 
 export type PendingApproval = {
   id: string;
-  kind: "commit" | "branch" | "shell";
+  kind: "commit" | "branch" | "risky_action";
   message: string;
   createdAt: string;
-  command?: string;
-  commitMessage?: string;
-  branchName?: string;
+  action: VoiceAction;
 };
 
 export type VoiceOpsState = {
@@ -71,7 +59,6 @@ export type VoiceOpsState = {
   agentStatus: AgentStatus;
   terminalLogs: AgentEvent[];
   diffSummary: string;
-  gitStatus: string;
   lastSpokenResponse: string;
   demoMode: boolean;
   updatedAt: string;
@@ -84,16 +71,8 @@ export type SafetyResult = {
   reasons: string[];
 };
 
-export type RunnerMode = "mock" | "shell";
-
 export type AppConfig = {
   port?: number;
   repoRoot: string;
-  runnerMode: RunnerMode;
-  agentCommand?: string;
-  buildCommand: string;
-  testCommand: string;
-  typecheckCommand: string;
-  elevenLabsApiKey?: string;
-  elevenLabsVoiceId?: string;
+  runnerMode: "mock";
 };

@@ -10,7 +10,6 @@ export const createInitialState = (): VoiceOpsState => ({
   agentStatus: "idle",
   terminalLogs: [],
   diffSummary: "",
-  gitStatus: "",
   lastSpokenResponse: "Say a coding task to begin.",
   demoMode: false,
   updatedAt: new Date().toISOString()

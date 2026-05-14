@@ -1,8 +1,7 @@
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import type { AgentEvent, VoiceOpsState } from "../../shared/types";
 import { approvePending, connectStateStream, getHealth, getState, rejectPending, submitCommand } from "./api";
 import { demoCommands } from "./demoCommands";
-import { createBrowserSpeaker } from "./speech";
 import "./styles.css";
 
 const initialState: VoiceOpsState = {
@@ -15,7 +14,6 @@ const initialState: VoiceOpsState = {
   agentStatus: "idle",
   terminalLogs: [],
   diffSummary: "",
-  gitStatus: "",
   lastSpokenResponse: "Say a coding task to begin.",
   demoMode: false,
   updatedAt: new Date().toISOString()
@@ -39,12 +37,13 @@ const statusLabel = (state: VoiceOpsState): string => {
 
 const eventClass = (event: AgentEvent): string => `log-line log-${event.type}`;
 
+const eventLabel = (event: AgentEvent): string =>
+  event.type === "approval_required" ? "approval" : event.type;
+
 function App() {
   const [state, setState] = useState<VoiceOpsState>(initialState);
   const [draft, setDraft] = useState("");
   const [micListening, setMicListening] = useState(false);
-  const [speechEnabled, setSpeechEnabled] = useState(true);
-  const speaker = useMemo(() => createBrowserSpeaker(), []);
 
   useEffect(() => {
     let mounted = true;
@@ -69,12 +68,6 @@ function App() {
       events.close();
     };
   }, []);
-
-  useEffect(() => {
-    if (speechEnabled && speaker.available) {
-      speaker.speak(state.lastSpokenResponse);
-    }
-  }, [speaker, speechEnabled, state.lastSpokenResponse]);
 
   const sendTranscript = async (transcript: string) => {
     const cleanTranscript = transcript.trim();
@@ -125,6 +118,8 @@ function App() {
         </div>
         <form className="command-form" onSubmit={handleSubmit}>
           <input
+            id="voice-command-transcript"
+            name="transcript"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Type or paste a spoken command"
@@ -163,14 +158,6 @@ function App() {
 
         <Panel title="Spoken response">
           <p className="spoken">{state.lastSpokenResponse}</p>
-          <label className="toggle">
-            <input
-              checked={speechEnabled}
-              onChange={(event) => setSpeechEnabled(event.target.checked)}
-              type="checkbox"
-            />
-            Browser TTS
-          </label>
         </Panel>
 
         <Panel title="Demo controls">
@@ -201,7 +188,7 @@ function App() {
             ) : (
               state.terminalLogs.map((event, index) => (
                 <p key={`${event.timestamp}-${index}`} className={eventClass(event)}>
-                  <span>{event.type}</span>
+                  <span>{eventLabel(event)}</span>
                   {event.message}
                 </p>
               ))
@@ -213,8 +200,9 @@ function App() {
           <Panel title="Diff summary">
             <p className="summary-text">{state.diffSummary || "Ask VoiceOps to read what changed."}</p>
           </Panel>
-          <Panel title="Git status">
-            <pre>{state.gitStatus || "Git status has not been requested."}</pre>
+          <Panel title="Agent status">
+            <div className="status-meter">{state.agentStatus}</div>
+            <p className="muted">{state.demoMode ? "Demo mode is armed." : "Demo mode is off."}</p>
           </Panel>
         </div>
       </section>
