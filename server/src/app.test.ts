@@ -18,7 +18,8 @@ describe("VoiceOps HTTP app", () => {
 
   beforeEach(async () => {
     const app = createVoiceOpsApp({
-      repoRoot: process.cwd()
+      repoRoot: process.cwd(),
+      runnerMode: "mock"
     });
     server = createServer(app.handle);
     const port = await listen(server);
