@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { classifyIntent } from "./intent";
-import { checkActionSafety, checkShellCommandSafety } from "./safety";
+import { checkActionSafety } from "./safety";
 
 describe("safety checker", () => {
-  test("allows normal build workflow commands", () => {
-    const result = checkShellCommandSafety("npm run build", "C:/repo", "C:/repo");
+  test("allows normal build feature requests", () => {
+    const action = classifyIntent("Create a landing page.");
+    const result = checkActionSafety(action);
 
     expect(result.allowed).toBe(true);
     expect(result.requiresApproval).toBe(false);
@@ -21,21 +22,28 @@ describe("safety checker", () => {
     expect(result.reasons).toContain("Local commits require explicit voice approval.");
   });
 
-  test("blocks destructive shell commands until approved", () => {
-    const result = checkShellCommandSafety("rm -rf dist", "C:/repo", "C:/repo");
+  test("requires approval for branch actions", () => {
+    const action = classifyIntent("Create a branch called voice demo.");
+    const result = checkActionSafety(action);
 
     expect(result.allowed).toBe(false);
     expect(result.requiresApproval).toBe(true);
     expect(result.riskLevel).toBe("high");
-    expect(result.reasons).toContain("Command contains a destructive token: rm.");
+    expect(result.reasons).toContain("Branch changes require explicit voice approval.");
   });
 
-  test("blocks commands that touch env files", () => {
-    const result = checkShellCommandSafety("type .env", "C:/repo", "C:/repo");
+  test("requires approval for dangerous text even when it looks like a feature request", () => {
+    const action = classifyIntent("Build a cleanup button that runs rm -rf dist and reads .env.");
+    const result = checkActionSafety(action);
 
     expect(result.allowed).toBe(false);
     expect(result.requiresApproval).toBe(true);
     expect(result.riskLevel).toBe("high");
-    expect(result.reasons).toContain("Command touches environment or secret material.");
+    expect(result.reasons).toEqual(
+      expect.arrayContaining([
+        "Transcript mentions destructive command text.",
+        "Transcript mentions environment or secret material."
+      ])
+    );
   });
 });

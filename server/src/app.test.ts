@@ -18,11 +18,7 @@ describe("VoiceOps HTTP app", () => {
 
   beforeEach(async () => {
     const app = createVoiceOpsApp({
-      repoRoot: process.cwd(),
-      runnerMode: "mock",
-      buildCommand: "npm run build",
-      testCommand: "npm test",
-      typecheckCommand: "npm run typecheck"
+      repoRoot: process.cwd()
     });
     server = createServer(app.handle);
     const port = await listen(server);
@@ -62,6 +58,27 @@ describe("VoiceOps HTTP app", () => {
     expect(body.state.lastSpokenResponse).toBe("Demo mode ready. Say a coding task.");
   });
 
+  test("routes feature commands through mock terminal output", async () => {
+    const response = await fetch(`${baseUrl}/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        transcript: "Create a landing page for a voice-controlled recipe app with a dark hero and pricing cards."
+      })
+    });
+
+    expect(response.status).toBe(202);
+    const body = await response.json();
+    expect(body.action.intent).toBe("BUILD_FEATURE");
+    expect(body.state.agentStatus).toBe("complete");
+    expect(body.state.terminalLogs.map((event: { message: string }) => event.message)).toEqual(
+      expect.arrayContaining([
+        "Mock agent accepted the feature request.",
+        "Mock response complete. No shell command was run."
+      ])
+    );
+  });
+
   test("creates a pending approval for commit commands", async () => {
     const response = await fetch(`${baseUrl}/commands`, {
       method: "POST",
@@ -78,5 +95,21 @@ describe("VoiceOps HTTP app", () => {
     expect(body.state.lastSpokenResponse).toBe(
       "Committing changes requires confirmation. Say confirm commit to continue."
     );
+  });
+
+  test("approves pending actions in mock mode without executing git", async () => {
+    await fetch(`${baseUrl}/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ transcript: "Commit it as add voice recipe landing page." })
+    });
+
+    const response = await fetch(`${baseUrl}/approvals`, { method: "POST" });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.state.pendingApproval).toBeNull();
+    expect(body.state.agentStatus).toBe("complete");
+    expect(body.state.lastSpokenResponse).toBe("Approved commit request in mock mode. No git command was run.");
   });
 });
