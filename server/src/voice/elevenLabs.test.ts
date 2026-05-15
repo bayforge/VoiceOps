@@ -1,33 +1,29 @@
 import { describe, expect, test, vi } from "vitest";
-import type { AppConfig } from "../../../shared/types";
+import type { VoiceConfig } from "../../../shared/types";
 import {
   createElevenLabsRealtimeSttService,
   createElevenLabsTtsService,
   publicVoiceConfig
 } from "./elevenLabs";
 
-const configuredApp: AppConfig = {
-  repoRoot: "C:/repo",
-  runnerMode: "mock",
-  voice: {
-    sttMode: "elevenlabs",
-    ttsMode: "elevenlabs",
-    elevenLabsApiKey: "secret-api-key",
-    elevenLabsConfigured: true,
-    elevenLabsVoiceConfigured: true,
-    elevenLabsVoiceId: "voice-123",
-    sttModelId: "scribe_v2_realtime",
-    ttsModelId: "eleven_flash_v2_5",
-    ttsOutputFormat: "mp3_44100_128",
-    realtimeSttUrl: "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
-    tokenUrl: "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
-    ttsStreamUrl: "https://api.elevenlabs.io/v1/text-to-speech"
-  }
+const configuredVoice: VoiceConfig = {
+  sttMode: "elevenlabs",
+  ttsMode: "elevenlabs",
+  elevenLabsApiKey: "secret-api-key",
+  elevenLabsConfigured: true,
+  elevenLabsVoiceConfigured: true,
+  elevenLabsVoiceId: "voice-123",
+  sttModelId: "scribe_v2_realtime",
+  ttsModelId: "eleven_flash_v2_5",
+  ttsOutputFormat: "mp3_44100_128",
+  realtimeSttUrl: "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
+  tokenUrl: "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
+  ttsStreamUrl: "https://api.elevenlabs.io/v1/text-to-speech"
 };
 
 describe("ElevenLabs voice service helpers", () => {
   test("redacts server-only credentials from public voice config", () => {
-    const redacted = publicVoiceConfig(configuredApp.voice);
+    const redacted = publicVoiceConfig(configuredVoice);
 
     expect(redacted).toEqual({
       sttMode: "elevenlabs",
@@ -44,7 +40,7 @@ describe("ElevenLabs voice service helpers", () => {
     const fetchImpl = vi.fn();
     const service = createElevenLabsRealtimeSttService(
       {
-        ...configuredApp.voice,
+        ...configuredVoice,
         sttMode: "mock",
         elevenLabsApiKey: undefined,
         elevenLabsConfigured: false
@@ -66,7 +62,7 @@ describe("ElevenLabs voice service helpers", () => {
         headers: { "content-type": "application/json" }
       })
     );
-    const service = createElevenLabsRealtimeSttService(configuredApp.voice, fetchImpl);
+    const service = createElevenLabsRealtimeSttService(configuredVoice, fetchImpl);
 
     await expect(service.createClientSession()).resolves.toEqual({
       available: true,
@@ -89,7 +85,7 @@ describe("ElevenLabs voice service helpers", () => {
     const fetchImpl = vi.fn();
     const service = createElevenLabsTtsService(
       {
-        ...configuredApp.voice,
+        ...configuredVoice,
         ttsMode: "browser",
         elevenLabsApiKey: undefined,
         elevenLabsConfigured: false,
@@ -114,7 +110,7 @@ describe("ElevenLabs voice service helpers", () => {
         headers: { "content-type": "audio/mpeg" }
       })
     );
-    const service = createElevenLabsTtsService(configuredApp.voice, fetchImpl);
+    const service = createElevenLabsTtsService(configuredVoice, fetchImpl);
 
     const result = await service.synthesize("Task complete.");
 
