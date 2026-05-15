@@ -39,6 +39,25 @@ export type AgentEvent = {
   data?: Record<string, unknown>;
 };
 
+export type ValidationWorkflow = "build" | "test" | "typecheck";
+
+export type AgentTask = {
+  id: string;
+  type:
+    | "feature"
+    | "test"
+    | "fix"
+    | "summarize"
+    | "branch"
+    | "commit"
+    | "demo";
+  prompt: string;
+  repoRoot: string;
+  requiresApproval: boolean;
+  approved: boolean;
+  workflow?: ValidationWorkflow;
+};
+
 export type AgentStatus = "idle" | "running" | "waiting_approval" | "complete" | "failed" | "stopped";
 
 export type VoiceSttMode = "mock" | "elevenlabs";
@@ -104,9 +123,28 @@ export type SafetyResult = {
   reasons: string[];
 };
 
+export type RunnerMode = "mock" | "shell";
+
+export type ConfiguredCommand = {
+  name: string;
+  raw: string;
+  executable: string;
+  args: string[];
+  cwd: string;
+  repoRoot: string;
+};
+
+export type CommandConfig = {
+  agent?: ConfiguredCommand;
+  build: ConfiguredCommand;
+  test: ConfiguredCommand;
+  typecheck: ConfiguredCommand;
+};
+
 export type AppConfig = {
   port?: number;
   repoRoot: string;
-  runnerMode: "mock";
+  runnerMode: RunnerMode;
+  commands: CommandConfig;
   voice: VoiceConfig;
 };

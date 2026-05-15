@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { classifyIntent } from "./intent";
-import { checkActionSafety } from "./safety";
+import { createConfiguredCommand } from "./commands";
+import { checkActionSafety, checkCommandSafety } from "./safety";
 
 describe("safety checker", () => {
   test("allows normal build feature requests", () => {
@@ -45,5 +46,44 @@ describe("safety checker", () => {
         "Transcript mentions environment or secret material."
       ])
     );
+  });
+
+  test("requires approval when a transcript mentions git commit text", () => {
+    const action = classifyIntent("Build a release button that runs git commit -m demo.");
+    const result = checkActionSafety(action);
+
+    expect(action.intent).toBe("COMMIT_CHANGES");
+    expect(result.allowed).toBe(false);
+    expect(result.requiresApproval).toBe(true);
+    expect(result.riskLevel).toBe("high");
+    expect(result.reasons).toContain("Local commits require explicit voice approval.");
+  });
+
+  test("allows configured build commands inside the repo", () => {
+    const command = createConfiguredCommand("build", "npm run build", process.cwd(), process.cwd());
+    const result = checkCommandSafety(command);
+
+    expect(result.allowed).toBe(true);
+    expect(result.requiresApproval).toBe(false);
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("blocks configured commands that install packages", () => {
+    const command = createConfiguredCommand("build", "npm install left-pad", process.cwd(), process.cwd());
+    const result = checkCommandSafety(command);
+
+    expect(result.allowed).toBe(false);
+    expect(result.requiresApproval).toBe(true);
+    expect(result.riskLevel).toBe("high");
+    expect(result.reasons).toContain("Configured command mentions package installation.");
+  });
+
+  test("blocks configured commands outside the repo root", () => {
+    const command = createConfiguredCommand("build", "npm run build", "C:\\tmp", process.cwd());
+    const result = checkCommandSafety(command);
+
+    expect(result.allowed).toBe(false);
+    expect(result.requiresApproval).toBe(true);
+    expect(result.reasons).toContain("Configured command would run outside the repo root.");
   });
 });

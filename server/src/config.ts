@@ -1,5 +1,6 @@
 import path from "node:path";
-import type { AppConfig, VoiceConfig, VoiceSttMode, VoiceTtsMode } from "../../shared/types.js";
+import type { AppConfig, RunnerMode, VoiceConfig, VoiceSttMode, VoiceTtsMode } from "../../shared/types.js";
+import { createCommandConfig } from "./commands.js";
 
 const trimEnv = (value: string | undefined): string | undefined => {
   const trimmed = value?.trim();
@@ -39,9 +40,17 @@ const loadVoiceConfig = (env: NodeJS.ProcessEnv): VoiceConfig => {
   };
 };
 
-export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => ({
-  port: Number(env.PORT ?? 8787),
-  repoRoot: path.resolve(env.REPO_ROOT && env.REPO_ROOT.trim() ? env.REPO_ROOT : process.cwd()),
-  runnerMode: "mock",
-  voice: loadVoiceConfig(env)
-});
+const loadRunnerMode = (env: NodeJS.ProcessEnv): RunnerMode =>
+  env.AGENT_RUNNER_MODE?.toLowerCase() === "shell" ? "shell" : "mock";
+
+export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
+  const repoRoot = path.resolve(env.REPO_ROOT && env.REPO_ROOT.trim() ? env.REPO_ROOT : process.cwd());
+
+  return {
+    port: Number(env.PORT ?? 8787),
+    repoRoot,
+    runnerMode: loadRunnerMode(env),
+    commands: createCommandConfig(env, repoRoot),
+    voice: loadVoiceConfig(env)
+  };
+};

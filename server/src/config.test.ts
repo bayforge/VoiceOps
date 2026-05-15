@@ -45,4 +45,20 @@ describe("loadConfig voice settings", () => {
     expect(config.voice.ttsMode).toBe("browser");
     expect(config.voice.elevenLabsConfigured).toBe(false);
   });
+
+  test("keeps the shell runner disabled unless explicitly requested", () => {
+    const defaultConfig = loadConfig({});
+    const shellConfig = loadConfig({
+      AGENT_RUNNER_MODE: "shell",
+      AGENT_COMMAND: "node scripts/agent.js",
+      BUILD_COMMAND: "npm run build",
+      TEST_COMMAND: "npm test",
+      TYPECHECK_COMMAND: "npm run typecheck"
+    });
+
+    expect(defaultConfig.runnerMode).toBe("mock");
+    expect(shellConfig.runnerMode).toBe("shell");
+    expect(shellConfig.commands.agent?.raw).toBe("node scripts/agent.js");
+    expect(shellConfig.commands.build.raw).toBe("npm run build");
+  });
 });

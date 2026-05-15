@@ -2,7 +2,7 @@
 
 Cursor VoiceOps is a hands-free developer cockpit for building, testing, fixing, summarizing, and committing code with voice commands.
 
-Phase 1/2 currently supports the project skeleton, a dark dashboard, typed command input, intent classification, safety checks, pending approvals, server-sent status updates, and mock terminal responses. Phase 3 adds microphone capture, mock speech-to-text, browser speech output, and env-gated ElevenLabs service modules.
+Phase 1-5 currently supports the project skeleton, a dark dashboard, typed command input, intent classification, safety checks, pending approvals, server-sent status updates, mock terminal responses, microphone capture, mock speech-to-text, browser speech output, env-gated ElevenLabs service modules, runner abstractions, build/test workflows, and local git summary/commit helpers.
 
 ## Current Scope
 
@@ -18,9 +18,13 @@ Phase 1/2 currently supports the project skeleton, a dark dashboard, typed comma
 - `GET /voice/config`
 - `POST /voice/stt-session`
 - `POST /voice/tts`
-- Mock-only command responses
+- Agent runner abstraction with mock mode by default
+- Optional shell runner gated by `AGENT_RUNNER_MODE=shell`
+- Build/test/typecheck command workflows
+- Git status and diff summary helpers
+- Local branch and commit helpers after approval
 
-Not implemented yet: shell execution, git diff, branch creation, or local commits.
+Not implemented yet: auto-push, cloud deployment, authentication, or unrestricted shell execution.
 
 ## Quick Start
 
@@ -70,6 +74,19 @@ ELEVENLABS_TTS_MODEL_ID=eleven_flash_v2_5
 
 If the API key or voice ID is missing, the server falls back to mock STT and browser TTS. The browser only receives redacted voice capability settings and single-use STT session tokens.
 
+## Runner Configuration
+
+The safest demo path is the default mock runner:
+
+```env
+AGENT_RUNNER_MODE=mock
+BUILD_COMMAND=npm run build
+TEST_COMMAND=npm test
+TYPECHECK_COMMAND=npm run typecheck
+```
+
+To opt into shell execution, set `AGENT_RUNNER_MODE=shell` and configure `AGENT_COMMAND`. Voice transcripts are never executed directly; the shell runner only executes configured commands that pass the safety layer.
+
 ## Mock Demo Flow
 
 Use the dashboard buttons or type this script:
@@ -82,7 +99,7 @@ Use the dashboard buttons or type this script:
 6. `Commit it as add voice recipe landing page.`
 7. `Confirm commit.`
 
-Commit and branch commands create approval prompts, but approvals only resolve mock state. No git command is run in Phase 1/2.
+Commit and branch commands create approval prompts. After confirmation, the server runs local git helpers only; it never pushes automatically.
 
 ## Validation
 

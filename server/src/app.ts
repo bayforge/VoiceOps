@@ -1,10 +1,21 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import crypto from "node:crypto";
-import type { AgentEvent, AppConfig, PendingApproval, VoiceAction, VoiceOpsState } from "../../shared/types.js";
+import type {
+  AgentEvent,
+  AgentTask,
+  AppConfig,
+  PendingApproval,
+  ValidationWorkflow,
+  VoiceAction,
+  VoiceOpsState
+} from "../../shared/types.js";
 import { classifyIntent } from "./intent.js";
 import { checkActionSafety } from "./safety.js";
 import { EventHub } from "./eventHub.js";
 import { createInitialState, pushTerminalEvent, systemEvent } from "./state.js";
+import { createAgentRunner } from "./runners/index.js";
+import type { AgentRunner } from "./runners/types.js";
+import { createBranch, createLocalCommit, summarizeGitDiff } from "./git.js";
 import {
   createElevenLabsRealtimeSttService,
   createElevenLabsTtsService,
@@ -58,60 +69,45 @@ const readJson = async (req: IncomingMessage): Promise<JsonValue> =>
 
 const asString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 
-const mockEventsForAction = (action: VoiceAction): AgentEvent[] => {
-  if (action.intent === "BUILD_FEATURE") {
-    return [
-      systemEvent("started", "Mock agent accepted the feature request."),
-      systemEvent("stdout", "Reading the typed transcript and preparing a safe task plan."),
-      systemEvent("stdout", "Mocking file edits for the requested UI without touching the shell."),
-      systemEvent("completed", "Mock response complete. No shell command was run.")
-    ];
-  }
-
-  if (action.intent === "RUN_TESTS") {
-    const workflow = asString(action.payload?.workflow) ?? "validation";
-    return [
-      systemEvent("started", `Mock ${workflow} workflow started.`),
-      systemEvent("stdout", "Would run validation through the safety layer in a later phase."),
-      systemEvent("stdout", "No package, shell, or build command was executed."),
-      systemEvent("completed", "Mock response complete. No shell command was run.")
-    ];
-  }
-
-  if (action.intent === "FIX_ERRORS") {
-    return [
-      systemEvent("started", "Mock fix workflow started."),
-      systemEvent("stdout", "Reading the latest terminal context from app state."),
-      systemEvent("stdout", "Preparing a mock repair summary."),
-      systemEvent("completed", "Mock response complete. No shell command was run.")
-    ];
-  }
-
-  if (action.intent === "SUMMARIZE_DIFF") {
-    return [
-      systemEvent("started", "Mock diff summary workflow started."),
-      systemEvent("stdout", "Summarizing state changes from the Phase 1/2 command pipeline."),
-      systemEvent("completed", "Mock diff summary ready. No git command was run.")
-    ];
-  }
-
-  return [systemEvent("status", "Mock response recorded.")];
-};
-
 const spokenResponseForAction = (action: VoiceAction): string => {
   if (action.intent === "BUILD_FEATURE") {
-    return "I logged a mock build task. Shell execution is not enabled yet.";
+    return "Feature task complete.";
   }
   if (action.intent === "RUN_TESTS") {
-    return "I logged a mock validation run. No build or test command was executed.";
+    const workflow = workflowFromAction(action);
+    return `${workflow[0].toUpperCase()}${workflow.slice(1)} workflow complete.`;
   }
   if (action.intent === "FIX_ERRORS") {
-    return "I logged a mock fix workflow using the current terminal context.";
+    return "Fix workflow complete.";
+  }
+  return "Task complete.";
+};
+
+const workflowFromAction = (action: VoiceAction): ValidationWorkflow => {
+  const workflow = asString(action.payload?.workflow);
+  return workflow === "build" || workflow === "typecheck" ? workflow : "test";
+};
+
+const taskTypeFromAction = (action: VoiceAction): AgentTask["type"] => {
+  if (action.intent === "BUILD_FEATURE") {
+    return "feature";
+  }
+  if (action.intent === "RUN_TESTS") {
+    return "test";
+  }
+  if (action.intent === "FIX_ERRORS") {
+    return "fix";
   }
   if (action.intent === "SUMMARIZE_DIFF") {
-    return "Mock diff summary: command pipeline, safety checks, approval state, and dashboard updates are wired.";
+    return "summarize";
   }
-  return "Mock response complete.";
+  if (action.intent === "CREATE_BRANCH") {
+    return "branch";
+  }
+  if (action.intent === "COMMIT_CHANGES") {
+    return "commit";
+  }
+  return "demo";
 };
 
 const approvalMessageForAction = (action: VoiceAction): string => {
@@ -139,6 +135,7 @@ export const createVoiceOpsApp = (config: AppConfig) => {
   const sttService = createElevenLabsRealtimeSttService(config.voice);
   const ttsService = createElevenLabsTtsService(config.voice);
   let state: VoiceOpsState = createInitialState();
+  let activeRunner: AgentRunner | null = null;
 
   const publish = (nextState: VoiceOpsState): void => {
     state = { ...nextState, updatedAt: new Date().toISOString() };
@@ -169,20 +166,90 @@ export const createVoiceOpsApp = (config: AppConfig) => {
     createdAt: new Date().toISOString()
   });
 
-  const runMockWorkflow = (action: VoiceAction): void => {
+  const createAgentTask = (action: VoiceAction): AgentTask => ({
+    id: crypto.randomUUID(),
+    type: taskTypeFromAction(action),
+    prompt: asString(action.payload?.prompt) ?? action.rawTranscript,
+    repoRoot: config.repoRoot,
+    requiresApproval: action.requiresApproval,
+    approved: false,
+    workflow: action.intent === "RUN_TESTS" ? workflowFromAction(action) : undefined
+  });
+
+  const runAgentWorkflow = async (action: VoiceAction): Promise<void> => {
+    const runner = createAgentRunner(config);
+    activeRunner = runner;
+    const task = createAgentTask(action);
+    let lastEvent: AgentEvent | undefined;
+
     patchState({ agentStatus: "running" });
-    for (const event of mockEventsForAction(action)) {
+    for await (const event of runner.runTask(task)) {
+      lastEvent = event;
       appendEvent(event);
     }
+
+    activeRunner = null;
     patchState({
-      agentStatus: "complete",
-      diffSummary:
-        action.intent === "SUMMARIZE_DIFF" ? spokenResponseForAction(action) : state.diffSummary,
-      lastSpokenResponse: spokenResponseForAction(action)
+      agentStatus:
+        lastEvent?.type === "failed"
+          ? "failed"
+          : lastEvent?.type === "stopped"
+            ? "stopped"
+            : "complete",
+      lastSpokenResponse:
+        lastEvent?.type === "failed"
+          ? lastEvent.message
+          : lastEvent?.type === "stopped"
+            ? "Agent stopped."
+            : spokenResponseForAction(action)
     });
   };
 
-  const approvePending = (res: ServerResponse): void => {
+  const runDiffSummary = async (): Promise<void> => {
+    patchState({ agentStatus: "running" });
+    appendSystemEvent("started", "Git diff summary workflow started.");
+    try {
+      const summary = await summarizeGitDiff(config.repoRoot);
+      appendSystemEvent("stdout", summary);
+      appendSystemEvent("completed", "Git diff summary ready.");
+      patchState({
+        agentStatus: "complete",
+        diffSummary: summary,
+        lastSpokenResponse: summary
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to summarize git diff.";
+      appendSystemEvent("failed", message);
+      patchState({
+        agentStatus: "failed",
+        lastSpokenResponse: message
+      });
+    }
+  };
+
+  const runApprovedAction = async (approval: PendingApproval): Promise<string> => {
+    if (approval.kind === "commit") {
+      const message = asString(approval.action.payload?.message) ?? "voiceops update";
+      appendSystemEvent("started", `Creating local commit: ${message}`, { approvalId: approval.id });
+      const result = await createLocalCommit(config.repoRoot, message, { approved: true });
+      appendSystemEvent("completed", result.message, { approvalId: approval.id });
+      return result.message;
+    }
+
+    if (approval.kind === "branch") {
+      const branchName = asString(approval.action.payload?.branchName) ?? "voiceops-demo";
+      appendSystemEvent("started", `Creating branch: ${branchName}`, { approvalId: approval.id });
+      const result = await createBranch(config.repoRoot, branchName, { approved: true });
+      appendSystemEvent("completed", result.message, { approvalId: approval.id });
+      return result.message;
+    }
+
+    const response = "Approved risky request. No command was run.";
+    appendSystemEvent("completed", response, { approvalId: approval.id });
+    return response;
+  };
+
+  const approvePending = async (res: ServerResponse): Promise<void> => {
     const approval = state.pendingApproval;
     if (!approval) {
       patchState({ lastSpokenResponse: "There is no pending approval." });
@@ -190,20 +257,23 @@ export const createVoiceOpsApp = (config: AppConfig) => {
       return;
     }
 
-    const response =
-      approval.kind === "commit"
-        ? "Approved commit request in mock mode. No git command was run."
-        : approval.kind === "branch"
-          ? "Approved branch request in mock mode. No git command was run."
-          : "Approved risky request in mock mode. No command was run.";
-
-    patchState({
-      pendingApproval: null,
-      agentStatus: "complete",
-      lastSpokenResponse: response
-    });
-    appendSystemEvent("completed", response, { approvalId: approval.id });
-    writeJson(res, 200, { approved: true, state });
+    patchState({ pendingApproval: null, agentStatus: "running" });
+    try {
+      const response = await runApprovedAction(approval);
+      patchState({
+        agentStatus: "complete",
+        lastSpokenResponse: response
+      });
+      writeJson(res, 200, { approved: true, state });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Approved action failed.";
+      appendSystemEvent("failed", message, { approvalId: approval.id });
+      patchState({
+        agentStatus: "failed",
+        lastSpokenResponse: message
+      });
+      writeJson(res, 400, { approved: false, error: message, state });
+    }
   };
 
   const rejectPending = (res: ServerResponse): void => {
@@ -235,7 +305,7 @@ export const createVoiceOpsApp = (config: AppConfig) => {
     });
 
     if (action.intent === "APPROVE_ACTION") {
-      approvePending(res);
+      await approvePending(res);
       return;
     }
 
@@ -283,8 +353,14 @@ export const createVoiceOpsApp = (config: AppConfig) => {
     }
 
     if (action.intent === "STOP_AGENT") {
-      patchState({ agentStatus: "stopped", lastSpokenResponse: "Agent stopped." });
-      appendSystemEvent("stopped", "Agent stopped.");
+      if (activeRunner) {
+        await activeRunner.stop();
+        patchState({ lastSpokenResponse: "Stopping the active agent." });
+        appendSystemEvent("status", "Stopping the active agent.");
+      } else {
+        patchState({ agentStatus: "stopped", lastSpokenResponse: "Agent stopped." });
+        appendSystemEvent("stopped", "Agent stopped.");
+      }
       writeJson(res, 200, { action, safety, state });
       return;
     }
@@ -303,7 +379,13 @@ export const createVoiceOpsApp = (config: AppConfig) => {
       return;
     }
 
-    runMockWorkflow(action);
+    if (action.intent === "SUMMARIZE_DIFF") {
+      await runDiffSummary();
+      writeJson(res, 202, { action, safety, state });
+      return;
+    }
+
+    await runAgentWorkflow(action);
     writeJson(res, 202, { action, safety, state });
   };
 
@@ -386,7 +468,7 @@ export const createVoiceOpsApp = (config: AppConfig) => {
       }
 
       if (req.method === "POST" && url.pathname === "/approvals") {
-        approvePending(res);
+        await approvePending(res);
         return;
       }
 
