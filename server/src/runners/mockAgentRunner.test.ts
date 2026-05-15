@@ -38,6 +38,26 @@ describe("MockAgentRunner", () => {
     );
   });
 
+  test("streams hackathon-ready feature logs", async () => {
+    const runner = new MockAgentRunner();
+
+    const events = await collectEvents(
+      runner.runTask(
+        task({
+          type: "feature",
+          prompt: "Create a landing page for a voice-controlled recipe app with a dark hero and pricing cards."
+        })
+      )
+    );
+
+    expect(events.map((event) => event.message)).toEqual(
+      expect.arrayContaining([
+        "Planning a dark hero, voice recipe workflow, and pricing cards.",
+        "Mock feature task completed. Demo landing page changes are ready for review."
+      ])
+    );
+  });
+
   test("can stop a running mock task and emit a stopped event", async () => {
     const runner = new MockAgentRunner({ delayMs: 1 });
     const iterator = runner.runTask(task({ type: "feature" }))[Symbol.asyncIterator]();

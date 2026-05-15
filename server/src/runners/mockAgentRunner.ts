@@ -52,17 +52,17 @@ export class MockAgentRunner implements AgentRunner {
       return [
         systemEvent("started", "Mock fix workflow started.", { taskId: task.id }),
         systemEvent("stdout", "Reading the latest terminal context from app state."),
-        systemEvent("stdout", "Preparing a mock repair summary."),
-        systemEvent("completed", "Mock fix task completed. No shell command was run.")
+        systemEvent("stdout", "Applying a safe mock repair plan for the demo."),
+        systemEvent("completed", "Mock fix task completed. Ready to summarize changes.")
       ];
     }
 
     if (task.type === "feature") {
       return [
         systemEvent("started", "Mock agent accepted the feature request.", { taskId: task.id }),
-        systemEvent("stdout", "Reading the transcript and preparing a safe task plan."),
-        systemEvent("stdout", "Mocking file edits for the requested change without touching the shell."),
-        systemEvent("completed", "Mock feature task completed. No shell command was run.")
+        systemEvent("stdout", "Planning a dark hero, voice recipe workflow, and pricing cards."),
+        systemEvent("stdout", "Preparing deterministic mock edits without executing transcribed speech."),
+        systemEvent("completed", "Mock feature task completed. Demo landing page changes are ready for review.")
       ];
     }
 
