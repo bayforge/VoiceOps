@@ -12,6 +12,7 @@ import {
   synthesizeElevenLabsSpeech
 } from "./api";
 import { demoCommands } from "./demoCommands";
+import { buildStatusTimeline, type StatusTimelineItem } from "./statusTimeline";
 import { createElevenLabsRealtimeSttClient, type RealtimeSttConnection } from "./voice/elevenLabsRealtimeStt";
 import { requestMicrophoneCapture, type MicrophoneCaptureResult } from "./voice/microphone";
 import { createMockSttService } from "./voice/mockStt";
@@ -54,6 +55,13 @@ const eventClass = (event: AgentEvent): string => `log-line log-${event.type}`;
 const eventLabel = (event: AgentEvent): string =>
   event.type === "approval_required" ? "approval" : event.type;
 
+const formatEventTime = (timestamp: string): string =>
+  new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(new Date(timestamp));
+
 function App() {
   const [state, setState] = useState<VoiceOpsState>(initialState);
   const [voiceConfig, setVoiceConfig] = useState<PublicVoiceConfig | null>(null);
@@ -64,6 +72,7 @@ function App() {
   const microphoneRef = useRef<Extract<MicrophoneCaptureResult, { available: true }> | null>(null);
   const realtimeSttRef = useRef<Extract<RealtimeSttConnection, { connected: true }> | null>(null);
   const lastSpokenRef = useRef(initialState.lastSpokenResponse);
+  const timelineItems = useMemo(() => buildStatusTimeline(state), [state]);
 
   useEffect(() => {
     let mounted = true;
@@ -212,7 +221,7 @@ function App() {
       <section className="topbar" aria-label="VoiceOps status">
         <div>
           <p className="eyebrow">Cursor VoiceOps</p>
-          <h1>Hands-free developer cockpit</h1>
+          <h1>Demo cockpit</h1>
         </div>
         <div className="status-cluster">
           <Badge label="API" value={state.connectionStatus} tone={state.connectionStatus === "connected" ? "good" : "bad"} />
@@ -224,9 +233,17 @@ function App() {
       </section>
 
       <section className="command-band">
-        <div>
-          <p className="section-label">Current transcript</p>
+        <div className="transcript-card">
+          <div className="transcript-head">
+            <p className="section-label">Live transcript</p>
+            <span className={`agent-pill agent-${state.agentStatus}`}>{state.agentStatus}</span>
+          </div>
           <p className="transcript">{state.currentTranscript || draft || "Waiting for a voice command."}</p>
+          <div className="transcript-meta">
+            <span>{state.parsedIntent}</span>
+            <span>Risk {state.riskLevel}</span>
+            <span>{state.demoMode ? "Demo armed" : "Demo off"}</span>
+          </div>
         </div>
         <form className="command-form" onSubmit={handleSubmit}>
           <input
@@ -253,7 +270,13 @@ function App() {
         <Panel title="Approval">
           {state.pendingApproval ? (
             <div className="approval">
+              <p className="approval-kicker">Approval required</p>
               <p>{state.pendingApproval.message}</p>
+              <p className="voice-hint">
+                {state.pendingApproval.kind === "commit"
+                  ? "Say confirm commit to continue."
+                  : "Say confirm to continue."}
+              </p>
               <div className="button-row">
                 <button type="button" onClick={() => void approvePending().then((response) => response.state && setState(response.state))}>
                   Confirm
@@ -264,7 +287,7 @@ function App() {
               </div>
             </div>
           ) : (
-            <p className="muted">No pending approval.</p>
+            <p className="muted">No approval waiting.</p>
           )}
         </Panel>
 
@@ -274,13 +297,14 @@ function App() {
 
         <Panel title="Demo controls">
           <div className="demo-grid">
-            {demoCommands.map((command) => (
+            {demoCommands.map((command, index) => (
               <button
                 key={command.intent}
                 type="button"
                 className="secondary"
                 onClick={() => void sendTranscript(command.transcript)}
               >
+                <span>{index + 1}</span>
                 {command.label}
               </button>
             ))}
@@ -300,6 +324,7 @@ function App() {
             ) : (
               state.terminalLogs.map((event, index) => (
                 <p key={`${event.timestamp}-${index}`} className={eventClass(event)}>
+                  <span className="log-time">{formatEventTime(event.timestamp)}</span>
                   <span>{eventLabel(event)}</span>
                   {event.message}
                 </p>
@@ -309,12 +334,15 @@ function App() {
         </div>
 
         <div className="summary-column">
+          <Panel title="Status timeline">
+            <ol className="timeline">
+              {timelineItems.map((item) => (
+                <TimelineStep key={item.label} item={item} />
+              ))}
+            </ol>
+          </Panel>
           <Panel title="Diff summary">
             <p className="summary-text">{state.diffSummary || "Ask VoiceOps to read what changed."}</p>
-          </Panel>
-          <Panel title="Agent status">
-            <div className="status-meter">{state.agentStatus}</div>
-            <p className="muted">{state.demoMode ? "Demo mode is armed." : "Demo mode is off."}</p>
           </Panel>
         </div>
       </section>
@@ -337,6 +365,18 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
       <h2>{title}</h2>
       {children}
     </article>
+  );
+}
+
+function TimelineStep({ item }: { item: StatusTimelineItem }) {
+  return (
+    <li className={`timeline-step timeline-${item.state}`}>
+      <span className="timeline-dot" aria-hidden="true" />
+      <div>
+        <strong>{item.label}</strong>
+        <p>{item.detail}</p>
+      </div>
+    </li>
   );
 }
 

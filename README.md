@@ -2,7 +2,7 @@
 
 Cursor VoiceOps is a hands-free developer cockpit for building, testing, fixing, summarizing, and committing code with voice commands.
 
-Phase 1-5 currently supports the project skeleton, a dark dashboard, typed command input, intent classification, safety checks, pending approvals, server-sent status updates, mock terminal responses, microphone capture, mock speech-to-text, browser speech output, env-gated ElevenLabs service modules, runner abstractions, build/test workflows, and local git summary/commit helpers.
+Phase 1-6 supports the project skeleton, a dark dashboard, typed command input, intent classification, safety checks, pending approvals, server-sent status updates, mock terminal responses, microphone capture, mock speech-to-text, browser speech output, env-gated ElevenLabs service modules, runner abstractions, build/test workflows, local git summary/commit helpers, and a reliable 90-second mock demo path.
 
 ## Current Scope
 
@@ -32,6 +32,12 @@ Requirements:
 
 - Node 20 or newer
 
+Create a local environment file if you want to override defaults:
+
+```powershell
+Copy-Item .env.example .env
+```
+
 Install dependencies:
 
 ```bash
@@ -50,7 +56,7 @@ Run the frontend in a second terminal:
 npm run dev:client
 ```
 
-Open `http://127.0.0.1:5173`.
+Open `http://127.0.0.1:5173`. Keep the default `AGENT_RUNNER_MODE=mock` for the safest hackathon demo.
 
 ## Voice Configuration
 
@@ -89,7 +95,7 @@ To opt into shell execution, set `AGENT_RUNNER_MODE=shell` and configure `AGENT_
 
 ## Mock Demo Flow
 
-Use the dashboard buttons or type this script:
+Use the dashboard buttons, type the commands, or speak this script:
 
 1. `VoiceOps, start demo mode.`
 2. `Create a landing page for a voice-controlled recipe app with a dark hero and pricing cards.`
@@ -99,7 +105,24 @@ Use the dashboard buttons or type this script:
 6. `Commit it as add voice recipe landing page.`
 7. `Confirm commit.`
 
-Commit and branch commands create approval prompts. After confirmation, the server runs local git helpers only; it never pushes automatically.
+In mock demo mode, the feature command writes `demo-output/voice-recipe-landing-page.html` so the diff summary and approved local commit have a real file change. Commit and branch commands create approval prompts. After confirmation, the server runs local git helpers only; it never pushes automatically.
+
+## Demo Recording Checklist
+
+- Start the backend and frontend before recording.
+- Leave `AGENT_RUNNER_MODE=mock` unless you are deliberately testing shell mode.
+- Show the dashboard transcript, intent, risk, status timeline, terminal stream, spoken response, and approval prompt.
+- Say `Confirm commit` only after the commit approval prompt appears.
+- End with: `Voice in. Cursor builds. ElevenLabs talks back. No keyboard.`
+
+## Troubleshooting
+
+- `API disconnected`: make sure `npm run dev:server` is running on `PORT=8787`.
+- `Transcript is required`: send a spoken or typed command before pressing Send.
+- `I need a clearer command`: use one of the supported intents, such as `start demo mode`, `run the build`, or `read me what changed`.
+- `No changes to commit`: in mock mode, start demo mode and run the feature command before committing.
+- Git reports dubious ownership: mark the repo safe for your Windows user with `git config --global --add safe.directory <repo-path>`.
+- Missing ElevenLabs keys do not block the demo; the app falls back to mock STT and browser TTS.
 
 ## Validation
 

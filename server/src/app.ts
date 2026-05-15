@@ -16,6 +16,7 @@ import { createInitialState, pushTerminalEvent, systemEvent } from "./state.js";
 import { createAgentRunner } from "./runners/index.js";
 import type { AgentRunner } from "./runners/types.js";
 import { createBranch, createLocalCommit, summarizeGitDiff } from "./git.js";
+import { writeDemoLandingPageArtifact } from "./demoArtifacts.js";
 import {
   createElevenLabsRealtimeSttService,
   createElevenLabsTtsService,
@@ -69,16 +70,32 @@ const readJson = async (req: IncomingMessage): Promise<JsonValue> =>
 
 const asString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 
-const spokenResponseForAction = (action: VoiceAction): string => {
+const startedSpokenResponseForAction = (action: VoiceAction): string => {
   if (action.intent === "BUILD_FEATURE") {
-    return "Feature task complete.";
+    return "I am building the landing page now.";
   }
   if (action.intent === "RUN_TESTS") {
     const workflow = workflowFromAction(action);
-    return `${workflow[0].toUpperCase()}${workflow.slice(1)} workflow complete.`;
+    return workflow === "build" ? "Running the build now." : `Running the ${workflow} workflow now.`;
   }
   if (action.intent === "FIX_ERRORS") {
-    return "Fix workflow complete.";
+    return "I am fixing the latest error context now.";
+  }
+  return "Agent is working.";
+};
+
+const spokenResponseForAction = (action: VoiceAction, artifactPath?: string): string => {
+  if (action.intent === "BUILD_FEATURE") {
+    return artifactPath
+      ? `Landing page demo artifact ready at ${artifactPath}. Say run the build when ready.`
+      : "Feature task complete. Say run the build when ready.";
+  }
+  if (action.intent === "RUN_TESTS") {
+    const workflow = workflowFromAction(action);
+    return `${workflow[0].toUpperCase()}${workflow.slice(1)} workflow complete. Say fix the error if needed, or read me what changed.`;
+  }
+  if (action.intent === "FIX_ERRORS") {
+    return "Fix workflow complete. Say read me what changed.";
   }
   return "Task complete.";
 };
@@ -181,11 +198,30 @@ export const createVoiceOpsApp = (config: AppConfig) => {
     activeRunner = runner;
     const task = createAgentTask(action);
     let lastEvent: AgentEvent | undefined;
+    let demoArtifactPath: string | undefined;
 
-    patchState({ agentStatus: "running" });
+    patchState({ agentStatus: "running", lastSpokenResponse: startedSpokenResponseForAction(action) });
     for await (const event of runner.runTask(task)) {
       lastEvent = event;
       appendEvent(event);
+    }
+
+    if (
+      config.runnerMode === "mock" &&
+      state.demoMode &&
+      action.intent === "BUILD_FEATURE" &&
+      lastEvent?.type !== "failed" &&
+      lastEvent?.type !== "stopped"
+    ) {
+      try {
+        const artifact = await writeDemoLandingPageArtifact(config.repoRoot);
+        demoArtifactPath = artifact.relativePath;
+        appendSystemEvent("stdout", artifact.message, { taskId: task.id, path: artifact.relativePath });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to write the demo artifact.";
+        lastEvent = systemEvent("failed", message, { taskId: task.id });
+        appendEvent(lastEvent);
+      }
     }
 
     activeRunner = null;
@@ -201,7 +237,7 @@ export const createVoiceOpsApp = (config: AppConfig) => {
           ? lastEvent.message
           : lastEvent?.type === "stopped"
             ? "Agent stopped."
-            : spokenResponseForAction(action)
+            : spokenResponseForAction(action, demoArtifactPath)
     });
   };
 
@@ -292,7 +328,7 @@ export const createVoiceOpsApp = (config: AppConfig) => {
     const body = await readJson(req);
     const transcript = asString(body.transcript);
     if (!transcript?.trim()) {
-      writeJson(res, 400, { error: "transcript is required" });
+      writeJson(res, 400, { error: "Transcript is required. Say or type a command before sending." });
       return;
     }
 
@@ -374,7 +410,9 @@ export const createVoiceOpsApp = (config: AppConfig) => {
     }
 
     if (action.intent === "UNKNOWN") {
-      patchState({ lastSpokenResponse: "I did not understand that. Say a coding task or ask for demo mode." });
+      patchState({
+        lastSpokenResponse: "I need a clearer command. Try start demo mode, run the build, or read me what changed."
+      });
       writeJson(res, 200, { action, safety, state });
       return;
     }

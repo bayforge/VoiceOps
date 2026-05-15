@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -102,9 +102,42 @@ describe("VoiceOps HTTP app", () => {
     expect(body.state.terminalLogs.map((event: { message: string }) => event.message)).toEqual(
       expect.arrayContaining([
         "Mock agent accepted the feature request.",
-        "Mock feature task completed. No shell command was run."
+        "Mock feature task completed. Demo landing page changes are ready for review."
       ])
     );
+  });
+
+  test("demo mode feature commands create a local artifact for summary and commit", async () => {
+    await fetch(`${baseUrl}/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ transcript: "VoiceOps, start demo mode." })
+    });
+
+    const featureResponse = await fetch(`${baseUrl}/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        transcript: "Create a landing page for a voice-controlled recipe app with a dark hero and pricing cards."
+      })
+    });
+
+    expect(featureResponse.status).toBe(202);
+    const featureBody = await featureResponse.json();
+    expect(featureBody.state.terminalLogs.map((event: { message: string }) => event.message)).toContain(
+      "Wrote demo-output/voice-recipe-landing-page.html for the mock demo."
+    );
+    await expect(readFile(path.join(repoRoot, "demo-output", "voice-recipe-landing-page.html"), "utf8")).resolves.toContain(
+      "Voice Recipe"
+    );
+
+    const summaryResponse = await fetch(`${baseUrl}/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ transcript: "Read me what changed." })
+    });
+    const summaryBody = await summaryResponse.json();
+    expect(summaryBody.state.diffSummary).toContain("demo-output/voice-recipe-landing-page.html");
   });
 
   test("routes build commands through the runner", async () => {
