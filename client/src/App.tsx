@@ -13,6 +13,7 @@ import {
 } from "./api";
 import { demoCommands } from "./demoCommands";
 import { buildStatusTimeline, type StatusTimelineItem } from "./statusTimeline";
+import { buildStudioWorkflow, type StudioWorkflowItem } from "./studioWorkflow";
 import { createElevenLabsRealtimeSttClient, type RealtimeSttConnection } from "./voice/elevenLabsRealtimeStt";
 import { requestMicrophoneCapture, type MicrophoneCaptureResult } from "./voice/microphone";
 import { createMockSttService } from "./voice/mockStt";
@@ -50,6 +51,27 @@ const statusLabel = (state: VoiceOpsState): string => {
   return state.demoMode ? "Demo mode ready." : "Say a coding task to begin.";
 };
 
+const nextActionHint = (state: VoiceOpsState): string => {
+  if (state.pendingApproval) {
+    return state.pendingApproval.kind === "commit"
+      ? "Say confirm commit to continue, or reject to cancel."
+      : "Say confirm to continue, or reject to cancel.";
+  }
+  if (state.agentStatus === "running") {
+    return "Say stop agent if you need to interrupt the workflow.";
+  }
+  if (!state.demoMode) {
+    return "Say VoiceOps, start demo mode.";
+  }
+  if (state.parsedIntent === "DEMO_MODE") {
+    return "Say a coding task for the app to build.";
+  }
+  if (state.agentStatus === "complete" && !state.diffSummary) {
+    return "Say run the build, fix the error, or read me what changed.";
+  }
+  return "Speak the next demo command or type it below.";
+};
+
 const eventClass = (event: AgentEvent): string => `log-line log-${event.type}`;
 
 const eventLabel = (event: AgentEvent): string =>
@@ -73,6 +95,11 @@ function App() {
   const realtimeSttRef = useRef<Extract<RealtimeSttConnection, { connected: true }> | null>(null);
   const lastSpokenRef = useRef(initialState.lastSpokenResponse);
   const timelineItems = useMemo(() => buildStatusTimeline(state), [state]);
+  const studioWorkflow = useMemo(() => buildStudioWorkflow(state), [state]);
+  const displayedTranscript = state.currentTranscript || draft;
+  const latestLog = state.terminalLogs[state.terminalLogs.length - 1];
+  const voiceActive = micListening || state.microphoneStatus === "listening";
+  const outputPreview = state.diffSummary || latestLog?.message || "No generated output yet. Start demo mode to produce a real artifact.";
 
   useEffect(() => {
     let mounted = true;
@@ -218,56 +245,86 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="topbar" aria-label="VoiceOps status">
-        <div>
+      <div className="background-glow glow-one" aria-hidden="true" />
+      <div className="background-glow glow-two" aria-hidden="true" />
+
+      <header className="studio-header" aria-label="VoiceOps status">
+        <div className="brand-lockup">
           <p className="eyebrow">Cursor VoiceOps</p>
-          <h1>Demo cockpit</h1>
+          <h1>Voice development studio</h1>
+          <p className="hero-copy">
+            Speak a task, watch the agent plan, code, validate, summarize, and ask before risky actions.
+          </p>
         </div>
-        <div className="status-cluster">
-          <Badge label="API" value={state.connectionStatus} tone={state.connectionStatus === "connected" ? "good" : "bad"} />
-          <Badge label="Mic" value={state.microphoneStatus} tone={state.microphoneStatus === "listening" ? "warn" : "neutral"} />
-          <Badge label="STT" value={voiceConfig?.sttMode ?? "mock"} tone={voiceConfig?.sttMode === "elevenlabs" ? "good" : "neutral"} />
-          <Badge label="TTS" value={voiceConfig?.ttsMode ?? "browser"} tone={voiceConfig?.ttsMode === "elevenlabs" ? "good" : "neutral"} />
-          <Badge label="Risk" value={state.riskLevel} tone={state.riskLevel === "high" ? "bad" : state.riskLevel === "medium" ? "warn" : "good"} />
+        <div className="status-cluster" aria-label="System status">
+          <StatusBadge label="API" value={state.connectionStatus} tone={state.connectionStatus === "connected" ? "good" : "bad"} />
+          <StatusBadge label="Mic" value={state.microphoneStatus} tone={state.microphoneStatus === "listening" ? "warn" : "neutral"} />
+          <StatusBadge label="STT" value={voiceConfig?.sttMode ?? "mock"} tone={voiceConfig?.sttMode === "elevenlabs" ? "good" : "neutral"} />
+          <StatusBadge label="TTS" value={voiceConfig?.ttsMode ?? "browser"} tone={voiceConfig?.ttsMode === "elevenlabs" ? "good" : "neutral"} />
+          <StatusBadge label="Risk" value={state.riskLevel} tone={state.riskLevel === "high" ? "bad" : state.riskLevel === "medium" ? "warn" : "good"} />
         </div>
+      </header>
+
+      <section className="studio-grid" aria-label="Voice command studio">
+        <GlassPanel className="voice-panel" eyebrow="Voice input" title="Command channel">
+          <div className="voice-stage">
+            <VoiceOrb active={voiceActive} status={state.microphoneStatus} />
+            <div>
+              <p className="state-kicker">{voiceActive ? "Listening now" : state.demoMode ? "Demo mode armed" : "Standing by"}</p>
+              <p className="next-action">{nextActionHint(state)}</p>
+            </div>
+          </div>
+
+          <form className="floating-action-input" onSubmit={handleSubmit}>
+            <input
+              id="voice-command-transcript"
+              name="transcript"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Type or paste a spoken command"
+              aria-label="Voice command transcript"
+            />
+            <button type="submit">Send</button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleMicrophone}
+              aria-label={micListening ? "Stop microphone capture" : "Start microphone capture"}
+              aria-pressed={micListening}
+            >
+              {micListening ? "Stop mic" : "Start mic"}
+            </button>
+          </form>
+        </GlassPanel>
+
+        <GlassPanel className="conversation-panel" eyebrow="Conversation" title="What VoiceOps heard">
+          <div className="conversation-stack" aria-live="polite">
+            <ConversationMessage role="You said" tone="user">
+              {displayedTranscript || "Waiting for a voice command."}
+            </ConversationMessage>
+            <ConversationMessage role="VoiceOps says" tone="assistant">
+              {state.lastSpokenResponse}
+            </ConversationMessage>
+          </div>
+          <div className="intent-strip" aria-label="Parsed command details">
+            <MetricPill label="Intent" value={state.parsedIntent} />
+            <MetricPill label="Risk" value={state.riskLevel} />
+            <MetricPill label="Agent" value={state.agentStatus} />
+            <MetricPill label="Mode" value={state.demoMode ? "demo" : "manual"} />
+          </div>
+        </GlassPanel>
+
+        <GlassPanel className="workflow-panel" eyebrow="Agent workflow" title="Live execution path">
+          <ol className="workflow-steps">
+            {studioWorkflow.map((item) => (
+              <WorkflowStep key={item.label} item={item} />
+            ))}
+          </ol>
+        </GlassPanel>
       </section>
 
-      <section className="command-band">
-        <div className="transcript-card">
-          <div className="transcript-head">
-            <p className="section-label">Live transcript</p>
-            <span className={`agent-pill agent-${state.agentStatus}`}>{state.agentStatus}</span>
-          </div>
-          <p className="transcript">{state.currentTranscript || draft || "Waiting for a voice command."}</p>
-          <div className="transcript-meta">
-            <span>{state.parsedIntent}</span>
-            <span>Risk {state.riskLevel}</span>
-            <span>{state.demoMode ? "Demo armed" : "Demo off"}</span>
-          </div>
-        </div>
-        <form className="command-form" onSubmit={handleSubmit}>
-          <input
-            id="voice-command-transcript"
-            name="transcript"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Type or paste a spoken command"
-            aria-label="Voice command transcript"
-          />
-          <button type="submit">Send</button>
-          <button type="button" className="secondary" onClick={handleMicrophone}>
-            {micListening ? "Stop mic" : "Start mic"}
-          </button>
-        </form>
-      </section>
-
-      <section className="grid">
-        <Panel title="Intent">
-          <div className="intent-readout">{state.parsedIntent}</div>
-          <p className="muted">{statusLabel(state)}</p>
-        </Panel>
-
-        <Panel title="Approval">
+      <section className="review-grid" aria-label="Agent controls and review">
+        <GlassPanel className={state.pendingApproval ? "approval-panel approval-panel-active" : "approval-panel"} eyebrow="Safety gate" title="Approval prompt">
           {state.pendingApproval ? (
             <div className="approval">
               <p className="approval-kicker">Approval required</p>
@@ -287,21 +344,22 @@ function App() {
               </div>
             </div>
           ) : (
-            <p className="muted">No approval waiting.</p>
+            <div className="empty-state">
+              <span aria-hidden="true" />
+              <p>No approval waiting.</p>
+              <small>Commits, branches, deletion, and risky commands pause here first.</small>
+            </div>
           )}
-        </Panel>
+        </GlassPanel>
 
-        <Panel title="Spoken response">
-          <p className="spoken">{state.lastSpokenResponse}</p>
-        </Panel>
-
-        <Panel title="Demo controls">
+        <GlassPanel className="onboarding-panel" eyebrow="Demo script" title="Next voice moves">
+          <p className="panel-lede">{statusLabel(state)}</p>
           <div className="demo-grid">
             {demoCommands.map((command, index) => (
               <button
                 key={command.intent}
                 type="button"
-                className="secondary"
+                className="secondary demo-command"
                 onClick={() => void sendTranscript(command.transcript)}
               >
                 <span>{index + 1}</span>
@@ -309,16 +367,23 @@ function App() {
               </button>
             ))}
           </div>
-        </Panel>
+        </GlassPanel>
+
+        <GlassPanel className="output-panel" eyebrow="Output preview" title="Produced app/code signal">
+          <p className="summary-text">{outputPreview}</p>
+        </GlassPanel>
       </section>
 
-      <section className="workbench">
-        <div className="terminal">
+      <section className="workbench" aria-label="Execution workbench">
+        <div className="terminal glass-panel">
           <div className="terminal-head">
-            <p>Terminal stream</p>
-            <span>{state.agentStatus}</span>
+            <div>
+              <p className="eyebrow">Terminal</p>
+              <h2>Execution logs</h2>
+            </div>
+            <span className={`agent-pill agent-${state.agentStatus}`}>{state.agentStatus}</span>
           </div>
-          <div className="terminal-body" aria-live="polite">
+          <div className="terminal-body" aria-live="polite" aria-label="Terminal output stream">
             {state.terminalLogs.length === 0 ? (
               <p className="log-line muted">No terminal output yet.</p>
             ) : (
@@ -334,37 +399,93 @@ function App() {
         </div>
 
         <div className="summary-column">
-          <Panel title="Status timeline">
+          <GlassPanel eyebrow="Pipeline" title="Safety timeline">
             <ol className="timeline">
               {timelineItems.map((item) => (
                 <TimelineStep key={item.label} item={item} />
               ))}
             </ol>
-          </Panel>
-          <Panel title="Diff summary">
+          </GlassPanel>
+          <GlassPanel eyebrow="Git" title="Diff summary">
             <p className="summary-text">{state.diffSummary || "Ask VoiceOps to read what changed."}</p>
-          </Panel>
+          </GlassPanel>
         </div>
       </section>
     </main>
   );
 }
 
-function Badge({ label, value, tone }: { label: string; value: string; tone: "good" | "warn" | "bad" | "neutral" }) {
+function StatusBadge({ label, value, tone }: { label: string; value: string; tone: "good" | "warn" | "bad" | "neutral" }) {
   return (
-    <div className={`badge badge-${tone}`}>
+    <div className={`status-badge badge-${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <article className="panel">
-      <h2>{title}</h2>
+    <span className="metric-pill">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </span>
+  );
+}
+
+function GlassPanel({
+  title,
+  eyebrow,
+  className = "",
+  children
+}: {
+  title: string;
+  eyebrow?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <article className={`glass-panel ${className}`}>
+      <div className="panel-heading">
+        {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
+        <h2>{title}</h2>
+      </div>
       {children}
     </article>
+  );
+}
+
+function VoiceOrb({ active, status }: { active: boolean; status: string }) {
+  return (
+    <div className={active ? "voice-orb voice-orb-active" : "voice-orb"} role="img" aria-label={`Voice activity status: ${status}`}>
+      <span className="orb-core" />
+      <span className="orb-ring orb-ring-one" />
+      <span className="orb-ring orb-ring-two" />
+      <span className="orb-wave orb-wave-one" />
+      <span className="orb-wave orb-wave-two" />
+      <span className="orb-wave orb-wave-three" />
+    </div>
+  );
+}
+
+function ConversationMessage({ role, tone, children }: { role: string; tone: "user" | "assistant"; children: ReactNode }) {
+  return (
+    <div className={`conversation-message message-${tone}`}>
+      <span>{role}</span>
+      <p>{children}</p>
+    </div>
+  );
+}
+
+function WorkflowStep({ item }: { item: StudioWorkflowItem }) {
+  return (
+    <li className={`workflow-step workflow-${item.state}`}>
+      <span className="workflow-index" aria-hidden="true" />
+      <div>
+        <strong>{item.label}</strong>
+        <p>{item.detail}</p>
+      </div>
+    </li>
   );
 }
 
