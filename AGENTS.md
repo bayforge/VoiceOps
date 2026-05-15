@@ -17,6 +17,7 @@ Before implementing any feature, read these files:
 3. SECURITY.md
 4. README.md, if present
 5. package.json, if present
+6. UI_STYLE_INTENT.md, when changing frontend UI
 
 ## Primary objective
 
